@@ -14,28 +14,52 @@
   textarea { width:100%; min-height:300px; resize:vertical; padding:14px; border-radius:12px; border:1px solid #8888; font:14px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; background:Field; color:FieldText; }
   .row { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
   button { border:0; border-radius:10px; padding:11px 15px; font-size:15px; font-weight:650; cursor:pointer; }
-  #open { font-size:16px; }
+  #open, #submit { font-size:16px; }
   #status { margin-top:12px; min-height:1.5em; font-size:14px; opacity:.86; }
   .small { margin-top:10px; font-size:13px; opacity:.65; line-height:1.5; }
+  details { margin-top:16px; border:1px solid #8885; border-radius:12px; padding:10px 12px; }
+  summary { cursor:pointer; font-weight:650; }
+  .field { margin-top:10px; }
+  label { display:block; font-size:13px; margin-bottom:5px; opacity:.78; }
+  input { width:100%; padding:10px 11px; border-radius:9px; border:1px solid #8888; background:Field; color:FieldText; font:14px ui-monospace,SFMono-Regular,Consolas,monospace; }
 </style>
 </head>
 <body>
 <main>
   <h1>URL一括オープナー</h1>
-  <p>ブックマークレットから受け取ったURLを、まとめて別タブで開きます。</p>
+  <p>ブックマークレットから受け取ったURLを、まとめて開くかcollectorへ送信します。</p>
   <textarea id="urls" spellcheck="false" placeholder="ここにURLが自動で入ります。手動で1行1URLを貼り付けても使えます。"></textarea>
   <div class="row">
+    <button id="submit">collectorへ送信</button>
     <button id="open">全部開く</button>
     <button id="copy">コピー</button>
     <button id="paste">貼り付け</button>
     <button id="clear">消去</button>
   </div>
   <div id="status"></div>
-  <div class="small">初回だけ、このページのポップアップを「常に許可」にしてください。http:// と https:// のURLだけを開きます。</div>
+  <details id="settings">
+    <summary>collector送信設定</summary>
+    <div class="field">
+      <label for="endpoint">受け口URL</label>
+      <input id="endpoint" type="url" inputmode="url" autocomplete="off" placeholder="https://...workers.dev/manual-intake">
+    </div>
+    <div class="field">
+      <label for="token">受け口token</label>
+      <input id="token" type="password" autocomplete="off" placeholder="端末専用token">
+    </div>
+    <div class="row"><button id="saveSettings">設定を保存</button></div>
+    <div class="small">設定値はこの端末のブラウザ内だけに保存します。GitHubのcredentialは保存しません。</div>
+  </details>
+  <div class="small">「全部開く」は初回だけこのページのポップアップを「常に許可」にしてください。collector送信は raw1001/rawkuro の作品URLだけを対象にします。</div>
 </main>
 <script>
 const box=document.getElementById('urls');
 const status=document.getElementById('status');
+const settings=document.getElementById('settings');
+const endpointInput=document.getElementById('endpoint');
+const tokenInput=document.getElementById('token');
+const STORAGE_ENDPOINT='raw1001CollectorEndpoint';
+const STORAGE_TOKEN='raw1001CollectorToken';
 
 function getUrls(){
   const seen=new Set(), out=[];
@@ -50,9 +74,31 @@ function getUrls(){
   }
   return out;
 }
+function getCollectorUrls(){
+  const seen=new Set(), out=[];
+  for(const raw of getUrls()){
+    try{
+      const u=new URL(raw);
+      if(u.protocol!=='https:'||u.username||u.password||u.port) continue;
+      const host=u.hostname.toLowerCase();
+      const canonicalHost=(host==='raw1001.net'||host==='www.raw1001.net')?'raw1001.net':
+        (host==='rawkuro.net'||host==='www.rawkuro.net')?'rawkuro.net':null;
+      if(!canonicalHost) continue;
+      const parts=u.pathname.split('/').filter(Boolean);
+      if(parts.length<2||parts[0].toLowerCase()!=='manga') continue;
+      let slug;
+      try{slug=decodeURIComponent(parts[1]);}catch{continue;}
+      if(!slug.trim()||slug==='.'||slug==='..') continue;
+      const normalized=`https://${canonicalHost}/manga/${encodeURIComponent(slug)}`;
+      if(!seen.has(normalized)){seen.add(normalized);out.push(normalized);}
+    }catch{}
+  }
+  return out;
+}
 function updateCount(prefix=''){
   const n=getUrls().length;
-  status.textContent=n?`${prefix}${n}件のURL`:'';
+  const c=getCollectorUrls().length;
+  status.textContent=n?`${prefix}${n}件のURL（collector対象 ${c}件）`:'';
 }
 function importFromHash(){
   const h=location.hash;
@@ -65,7 +111,61 @@ function importFromHash(){
     status.textContent='URLの受け取りに失敗しました';
   }
 }
+function loadSettings(){
+  endpointInput.value=localStorage.getItem(STORAGE_ENDPOINT)||'';
+  tokenInput.value=localStorage.getItem(STORAGE_TOKEN)||'';
+}
+function validEndpoint(raw){
+  try{
+    const u=new URL(raw);
+    return u.protocol==='https:'&&u.pathname.endsWith('/manual-intake')?u.href:null;
+  }catch{return null;}
+}
 box.addEventListener('input',()=>updateCount());
+
+document.getElementById('submit').addEventListener('click',async()=>{
+  const urls=getCollectorUrls();
+  if(!urls.length){status.textContent='collectorへ送る対象URLがありません';return;}
+  const endpoint=validEndpoint(localStorage.getItem(STORAGE_ENDPOINT)||'');
+  const token=localStorage.getItem(STORAGE_TOKEN)||'';
+  if(!endpoint||!token){
+    settings.open=true;
+    status.textContent='先にcollector送信設定を保存してください';
+    return;
+  }
+  const button=document.getElementById('submit');
+  button.disabled=true;
+  status.textContent=`${urls.length}件をcollectorへ送信中…`;
+  try{
+    const response=await fetch(endpoint,{
+      method:'POST',
+      headers:{'authorization':`Bearer ${token}`,'content-type':'application/json'},
+      body:JSON.stringify({source:'manual-android',urls})
+    });
+    let result={};
+    try{result=await response.json();}catch{}
+    if(!response.ok||result.ok!==true){
+      throw new Error(result.detail||result.error||`HTTP ${response.status}`);
+    }
+    status.textContent=`collectorへ${result.accepted??urls.length}件送信しました`;
+  }catch(error){
+    status.textContent=`collector送信に失敗しました: ${error.message||error}`;
+  }finally{
+    button.disabled=false;
+  }
+});
+
+document.getElementById('saveSettings').addEventListener('click',()=>{
+  const endpoint=validEndpoint(endpointInput.value.trim());
+  const token=tokenInput.value.trim();
+  if(!endpoint){status.textContent='受け口URLは https://.../manual-intake を指定してください';return;}
+  if(!token){status.textContent='受け口tokenを入力してください';return;}
+  localStorage.setItem(STORAGE_ENDPOINT,endpoint);
+  localStorage.setItem(STORAGE_TOKEN,token);
+  endpointInput.value=endpoint;
+  status.textContent='collector送信設定を保存しました';
+  settings.open=false;
+});
 
 document.getElementById('open').addEventListener('click',()=>{
   const urls=getUrls();
@@ -107,6 +207,7 @@ document.getElementById('clear').addEventListener('click',()=>{
   box.value=''; updateCount(); box.focus();
 });
 
+loadSettings();
 importFromHash();
 </script>
 </body>
