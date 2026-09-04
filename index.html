@@ -48,7 +48,7 @@
       <input id="token" type="password" autocomplete="off" placeholder="端末専用token">
     </div>
     <div class="row"><button id="saveSettings">設定を保存</button></div>
-    <div class="small">設定値はこの端末のブラウザ内だけに保存します。GitHubのcredentialは保存しません。</div>
+    <div class="small">受け口URLは既定値を設定済みです。tokenだけ入力すれば使えます。設定値はこの端末のブラウザ内だけに保存します。GitHubのcredentialは保存しません。</div>
   </details>
   <div class="small">「全部開く」は初回だけこのページのポップアップを「常に許可」にしてください。collector送信は raw1001/rawkuro の作品URLだけを対象にします。</div>
 </main>
@@ -60,6 +60,7 @@ const endpointInput=document.getElementById('endpoint');
 const tokenInput=document.getElementById('token');
 const STORAGE_ENDPOINT='raw1001CollectorEndpoint';
 const STORAGE_TOKEN='raw1001CollectorToken';
+const DEFAULT_ENDPOINT='https://raw1001-manual-intake.kasokasoforce.workers.dev/manual-intake';
 
 function getUrls(){
   const seen=new Set(), out=[];
@@ -112,7 +113,7 @@ function importFromHash(){
   }
 }
 function loadSettings(){
-  endpointInput.value=localStorage.getItem(STORAGE_ENDPOINT)||'';
+  endpointInput.value=localStorage.getItem(STORAGE_ENDPOINT)||DEFAULT_ENDPOINT;
   tokenInput.value=localStorage.getItem(STORAGE_TOKEN)||'';
 }
 function validEndpoint(raw){
@@ -126,11 +127,12 @@ box.addEventListener('input',()=>updateCount());
 document.getElementById('submit').addEventListener('click',async()=>{
   const urls=getCollectorUrls();
   if(!urls.length){status.textContent='collectorへ送る対象URLがありません';return;}
-  const endpoint=validEndpoint(localStorage.getItem(STORAGE_ENDPOINT)||'');
+  const endpoint=validEndpoint(localStorage.getItem(STORAGE_ENDPOINT)||DEFAULT_ENDPOINT);
   const token=localStorage.getItem(STORAGE_TOKEN)||'';
   if(!endpoint||!token){
     settings.open=true;
-    status.textContent='先にcollector送信設定を保存してください';
+    endpointInput.value=endpoint||DEFAULT_ENDPOINT;
+    status.textContent='先に受け口tokenを保存してください';
     return;
   }
   const button=document.getElementById('submit');
@@ -156,7 +158,7 @@ document.getElementById('submit').addEventListener('click',async()=>{
 });
 
 document.getElementById('saveSettings').addEventListener('click',()=>{
-  const endpoint=validEndpoint(endpointInput.value.trim());
+  const endpoint=validEndpoint(endpointInput.value.trim()||DEFAULT_ENDPOINT);
   const token=tokenInput.value.trim();
   if(!endpoint){status.textContent='受け口URLは https://.../manual-intake を指定してください';return;}
   if(!token){status.textContent='受け口tokenを入力してください';return;}
