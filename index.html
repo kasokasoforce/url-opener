@@ -53,6 +53,8 @@
   <div class="small">「全部開く」は初回だけこのページのポップアップを「常に許可」にしてください。collector送信は raw1001/rawkuro の作品URLだけを対象にします。</div>
 </main>
 <script>
+window.name='urlLauncher';
+
 const box=document.getElementById('urls');
 const status=document.getElementById('status');
 const settings=document.getElementById('settings');
@@ -209,6 +211,7 @@ document.getElementById('clear').addEventListener('click',()=>{
   box.value=''; updateCount(); box.focus();
 });
 
+window.addEventListener('hashchange',importFromHash);
 loadSettings();
 importFromHash();
 </script>
