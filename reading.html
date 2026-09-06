@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>読むリスト更新</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif; background:Canvas; color:CanvasText; }
+  main { width:min(820px,calc(100% - 24px)); margin:0 auto; padding:18px 0 44px; }
+  h1 { margin:0 0 6px; font-size:22px; }
+  p { margin:0 0 12px; line-height:1.5; opacity:.8; }
+  .toolbar,.actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button,a.button { border:0; border-radius:10px; padding:10px 13px; font-size:14px; font-weight:650; cursor:pointer; text-decoration:none; background:ButtonFace; color:ButtonText; }
+  button:disabled { opacity:.45; cursor:default; }
+  #status { min-height:1.5em; margin:12px 0; font-size:14px; }
+  #list { display:grid; gap:10px; }
+  article { border:1px solid #8885; border-radius:12px; padding:12px; }
+  article:first-child { border-width:2px; }
+  .title { font-weight:700; line-height:1.4; }
+  .meta { font-size:12px; opacity:.65; margin:4px 0 9px; }
+  .cycle { font-weight:800; margin-right:4px; }
+  details { margin-top:16px; border:1px solid #8885; border-radius:12px; padding:10px 12px; }
+  label { display:block; font-size:13px; margin:8px 0 4px; opacity:.75; }
+  input { width:100%; padding:10px; border:1px solid #8888; border-radius:9px; background:Field; color:FieldText; }
+  .small { margin-top:10px; font-size:12px; line-height:1.5; opacity:.65; }
+</style>
+</head>
+<body>
+<main>
+  <h1>読むリスト更新</h1>
+  <p>未読の上から順に表示します。読後に「↻ 追いついた / 完結 / 除外」を選びます。</p>
+  <div class="toolbar">
+    <button id="reload">最新を読み込む</button>
+    <a class="button" href="./">URL Openerへ戻る</a>
+  </div>
+  <div id="status"></div>
+  <section id="list"></section>
+
+  <details id="settings">
+    <summary>接続設定</summary>
+    <label for="endpoint">受け口URL</label>
+    <input id="endpoint" type="url" inputmode="url" autocomplete="off">
+    <label for="token">受け口token</label>
+    <input id="token" type="password" autocomplete="off">
+    <div class="toolbar" style="margin-top:10px"><button id="saveSettings">設定を保存</button></div>
+    <div class="small">URL Openerと同じ端末専用tokenを使います。GitHubのcredentialは端末へ保存しません。</div>
+  </details>
+</main>
+<script>
+const STORAGE_ENDPOINT='raw1001CollectorEndpoint';
+const STORAGE_TOKEN='raw1001CollectorToken';
+const DEFAULT_ENDPOINT='https://raw1001-manual-intake.kasokasoforce.workers.dev/manual-intake';
+const status=document.getElementById('status');
+const list=document.getElementById('list');
+const settings=document.getElementById('settings');
+const endpointInput=document.getElementById('endpoint');
+const tokenInput=document.getElementById('token');
+let revision='';
+let actionQueued=false;
+
+function endpointBase(raw){
+  try{
+    const url=new URL(raw||DEFAULT_ENDPOINT);
+    if(url.protocol!=='https:'||!url.pathname.endsWith('/manual-intake')) return null;
+    url.pathname=url.pathname.slice(0,-'/manual-intake'.length);
+    url.search=''; url.hash='';
+    return url.href.replace(/\/$/,'');
+  }catch{return null;}
+}
+function connection(){
+  const endpoint=localStorage.getItem(STORAGE_ENDPOINT)||DEFAULT_ENDPOINT;
+  const token=localStorage.getItem(STORAGE_TOKEN)||'';
+  return {base:endpointBase(endpoint),endpoint,token};
+}
+function setBusy(value){
+  for(const button of document.querySelectorAll('article button')) button.disabled=value;
+  document.getElementById('reload').disabled=value;
+}
+function render(works){
+  list.replaceChildren();
+  for(const work of works){
+    const article=document.createElement('article');
+    const title=document.createElement('div');
+    title.className='title';
+    if(work.refresh){
+      const mark=document.createElement('span');
+      mark.className='cycle'; mark.textContent='↻';
+      title.append(mark);
+    }
+    title.append(document.createTextNode(work.title));
+    const meta=document.createElement('div');
+    meta.className='meta';
+    meta.textContent=`未読 ${work.display_order}番目${work.note?` / ${work.note}`:''}`;
+    const actions=document.createElement('div');
+    actions.className='actions';
+    if(work.url){
+      const open=document.createElement('a');
+      open.className='button'; open.href=work.url; open.target='_blank'; open.rel='noopener'; open.textContent='開く';
+      actions.append(open);
+    }
+    for(const [label,action,confirmText] of [
+      ['↻ 追いついた','cycle',null],
+      ['完結','completed','「完結」へ移します。よろしいですか？'],
+      ['除外','excluded','「除外」へ移します。よろしいですか？'],
+    ]){
+      const button=document.createElement('button');
+      button.textContent=label;
+      button.addEventListener('click',()=>queueAction(work,action,confirmText));
+      actions.append(button);
+    }
+    article.append(title,meta,actions);
+    list.append(article);
+  }
+}
+async function loadList(){
+  const {base,token}=connection();
+  if(!base||!token){
+    settings.open=true;
+    endpointInput.value=localStorage.getItem(STORAGE_ENDPOINT)||DEFAULT_ENDPOINT;
+    tokenInput.value=localStorage.getItem(STORAGE_TOKEN)||'';
+    status.textContent='先に接続設定を保存してください';
+    return;
+  }
+  actionQueued=false;
+  setBusy(true);
+  status.textContent='未読リストを読み込み中…';
+  try{
+    const response=await fetch(`${base}/reading-list?status=unread&limit=100`,{
+      headers:{authorization:`Bearer ${token}`,accept:'application/json'}
+    });
+    let body={}; try{body=await response.json();}catch{}
+    if(!response.ok||body.ok!==true) throw new Error(body.detail||body.error||`HTTP ${response.status}`);
+    revision=body.revision||'';
+    render(Array.isArray(body.works)?body.works:[]);
+    status.textContent=body.count?`未読の先頭から${body.count}件を表示`:'未読はありません';
+  }catch(error){
+    revision=''; list.replaceChildren();
+    status.textContent=`読み込みに失敗しました: ${error.message||error}`;
+  }finally{setBusy(false);}
+}
+async function queueAction(work,action,confirmText){
+  if(actionQueued){status.textContent='前の操作を反映後、「最新を読み込む」を押してください';return;}
+  if(confirmText&&!confirm(`${work.title}\n\n${confirmText}`)) return;
+  const {base,token}=connection();
+  if(!base||!token||!revision){status.textContent='最新リストを読み直してください';return;}
+  setBusy(true);
+  status.textContent=`${work.title} の更新を送信中…`;
+  try{
+    const response=await fetch(`${base}/reading-status`,{
+      method:'POST',
+      headers:{authorization:`Bearer ${token}`,'content-type':'application/json',accept:'application/json'},
+      body:JSON.stringify({source:'reading-android',work_id:work.id,action,expected_revision:revision})
+    });
+    let body={}; try{body=await response.json();}catch{}
+    if(!response.ok||body.ok!==true) throw new Error(body.detail||body.error||`HTTP ${response.status}`);
+    actionQueued=true;
+    const labels={cycle:'↻ 末尾へ',completed:'完結へ',excluded:'除外へ'};
+    status.textContent=`受付済み: ${work.title} → ${labels[action]}。次に使う時は最新を読み込んでください。`;
+  }catch(error){
+    status.textContent=`更新送信に失敗しました: ${error.message||error}`;
+    setBusy(false);
+  }
+}
+
+document.getElementById('reload').addEventListener('click',loadList);
+document.getElementById('saveSettings').addEventListener('click',()=>{
+  const endpoint=endpointInput.value.trim()||DEFAULT_ENDPOINT;
+  const token=tokenInput.value.trim();
+  if(!endpointBase(endpoint)){status.textContent='受け口URLは https://.../manual-intake を指定してください';return;}
+  if(!token){status.textContent='受け口tokenを入力してください';return;}
+  localStorage.setItem(STORAGE_ENDPOINT,endpoint);
+  localStorage.setItem(STORAGE_TOKEN,token);
+  settings.open=false;
+  loadList();
+});
+endpointInput.value=localStorage.getItem(STORAGE_ENDPOINT)||DEFAULT_ENDPOINT;
+tokenInput.value=localStorage.getItem(STORAGE_TOKEN)||'';
+loadList();
+</script>
+</body>
+</html>
