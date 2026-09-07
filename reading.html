@@ -8,28 +8,29 @@
 (() => {
   const PAGES_ORIGIN='https://kasokasoforce.github.io';
   const WORKER_ORIGIN='https://raw1001-manual-intake.kasokasoforce.workers.dev';
-  const STORAGE_ENDPOINT='raw1001CollectorEndpoint';
   const STORAGE_TOKEN='raw1001CollectorToken';
-  const MIGRATION_PREFIX='raw1001-worker-migrate:';
-  const targetPath='/app/reading.html';
+  const target='reading';
 
-  if(location.origin===PAGES_ORIGIN){
-    const token=localStorage.getItem(STORAGE_TOKEN)||'';
-    if(token){
-      try{window.name=MIGRATION_PREFIX+btoa(JSON.stringify({token}));}catch{}
-    }
-    location.replace(WORKER_ORIGIN+targetPath+location.search+location.hash);
+  if(location.origin!==PAGES_ORIGIN) return;
+  const token=localStorage.getItem(STORAGE_TOKEN)||'';
+  if(!token){
+    const path=target==='reading'?'/app/reading.html':'/app/';
+    location.replace(WORKER_ORIGIN+path+location.search+location.hash);
     return;
   }
 
-  if(location.origin===WORKER_ORIGIN&&window.name.startsWith(MIGRATION_PREFIX)){
-    try{
-      const data=JSON.parse(atob(window.name.slice(MIGRATION_PREFIX.length)));
-      if(typeof data.token==='string'&&data.token) localStorage.setItem(STORAGE_TOKEN,data.token);
-      localStorage.setItem(STORAGE_ENDPOINT,WORKER_ORIGIN+'/manual-intake');
-    }catch{}
-    window.name='urlLauncher';
+  const form=document.createElement('form');
+  form.method='POST';
+  form.action=WORKER_ORIGIN+'/app/migrate';
+  for(const [name,value] of [['token',token],['target',target],['hash',location.hash]]){
+    const input=document.createElement('input');
+    input.type='hidden';
+    input.name=name;
+    input.value=value;
+    form.append(input);
   }
+  (document.body||document.documentElement).append(form);
+  form.submit();
 })();
 </script>
 <style>
