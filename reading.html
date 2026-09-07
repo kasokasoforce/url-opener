@@ -4,6 +4,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>読むリスト更新</title>
+<script>
+(() => {
+  const PAGES_ORIGIN='https://kasokasoforce.github.io';
+  const WORKER_ORIGIN='https://raw1001-manual-intake.kasokasoforce.workers.dev';
+  const STORAGE_TOKEN='raw1001CollectorToken';
+  const target='reading';
+
+  if(location.origin!==PAGES_ORIGIN) return;
+  const token=localStorage.getItem(STORAGE_TOKEN)||'';
+  if(!token){
+    const path=target==='reading'?'/app/reading.html':'/app/';
+    location.replace(WORKER_ORIGIN+path+location.search+location.hash);
+    return;
+  }
+
+  const form=document.createElement('form');
+  form.method='POST';
+  form.action=WORKER_ORIGIN+'/app/migrate';
+  for(const [name,value] of [['token',token],['target',target],['hash',location.hash]]){
+    const input=document.createElement('input');
+    input.type='hidden';
+    input.name=name;
+    input.value=value;
+    form.append(input);
+  }
+  (document.body||document.documentElement).append(form);
+  form.submit();
+})();
+</script>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing:border-box; }
