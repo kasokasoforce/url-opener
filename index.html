@@ -4,6 +4,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>URL一括オープナー</title>
+<script>
+(() => {
+  const PAGES_ORIGIN='https://kasokasoforce.github.io';
+  const WORKER_ORIGIN='https://raw1001-manual-intake.kasokasoforce.workers.dev';
+  const STORAGE_ENDPOINT='raw1001CollectorEndpoint';
+  const STORAGE_TOKEN='raw1001CollectorToken';
+  const MIGRATION_PREFIX='raw1001-worker-migrate:';
+  const targetPath='/app/';
+
+  if(location.origin===PAGES_ORIGIN){
+    const token=localStorage.getItem(STORAGE_TOKEN)||'';
+    if(token){
+      try{window.name=MIGRATION_PREFIX+btoa(JSON.stringify({token}));}catch{}
+    }
+    location.replace(WORKER_ORIGIN+targetPath+location.search+location.hash);
+    return;
+  }
+
+  if(location.origin===WORKER_ORIGIN&&window.name.startsWith(MIGRATION_PREFIX)){
+    try{
+      const data=JSON.parse(atob(window.name.slice(MIGRATION_PREFIX.length)));
+      if(typeof data.token==='string'&&data.token) localStorage.setItem(STORAGE_TOKEN,data.token);
+      localStorage.setItem(STORAGE_ENDPOINT,WORKER_ORIGIN+'/manual-intake');
+    }catch{}
+    window.name='urlLauncher';
+  }
+})();
+</script>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
