@@ -10,27 +10,40 @@
   body { margin:0; font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif; background:Canvas; color:CanvasText; }
   main { width:min(760px,calc(100% - 28px)); margin:0 auto; padding:22px 0 40px; }
   h1 { font-size:22px; margin:0 0 8px; }
+  h2 { font-size:18px; margin:20px 0 8px; }
   p { margin:0 0 14px; line-height:1.55; opacity:.82; }
-  textarea { width:100%; min-height:300px; resize:vertical; padding:14px; border-radius:12px; border:1px solid #8888; font:14px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; background:Field; color:FieldText; }
+  textarea { width:100%; min-height:230px; resize:vertical; padding:14px; border-radius:12px; border:1px solid #8888; font:14px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; background:Field; color:FieldText; }
   .row { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
   button { border:0; border-radius:10px; padding:11px 15px; font-size:15px; font-weight:650; cursor:pointer; }
-  #open, #submit { font-size:16px; }
-  #status { margin-top:12px; min-height:1.5em; font-size:14px; opacity:.86; }
-  .small { margin-top:10px; font-size:13px; opacity:.65; line-height:1.5; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  #previewButton, #submit { font-size:16px; }
+  #status { margin-top:12px; min-height:1.5em; font-size:14px; opacity:.9; }
+  .small { margin-top:10px; font-size:13px; opacity:.68; line-height:1.5; }
   details { margin-top:16px; border:1px solid #8885; border-radius:12px; padding:10px 12px; }
   summary { cursor:pointer; font-weight:650; }
   .field { margin-top:10px; }
   label { display:block; font-size:13px; margin-bottom:5px; opacity:.78; }
-  input { width:100%; padding:10px 11px; border-radius:9px; border:1px solid #8888; background:Field; color:FieldText; font:14px ui-monospace,SFMono-Regular,Consolas,monospace; }
+  input[type="url"], input[type="password"] { width:100%; padding:10px 11px; border-radius:9px; border:1px solid #8888; background:Field; color:FieldText; font:14px ui-monospace,SFMono-Regular,Consolas,monospace; }
+  #previewPanel[hidden] { display:none; }
+  #candidateSummary { margin:8px 0 10px; font-size:14px; }
+  #candidates { display:grid; gap:10px; }
+  .candidate { border:1px solid #8885; border-radius:12px; padding:12px; display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:start; }
+  .candidate input[type="checkbox"] { width:22px; height:22px; margin-top:2px; }
+  .candidateTitle { font-size:16px; font-weight:700; line-height:1.4; overflow-wrap:anywhere; }
+  .candidateMeta { display:flex; flex-wrap:wrap; gap:7px; margin-top:7px; align-items:center; }
+  .badge { display:inline-block; padding:4px 8px; border-radius:999px; border:1px solid #8887; font-size:12px; font-weight:650; }
+  .chapter { font-weight:700; }
+  .candidateUrl { margin-top:7px; font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; opacity:.58; overflow-wrap:anywhere; }
+  .duplicateNote { margin-top:6px; font-size:13px; opacity:.78; }
 </style>
 </head>
 <body>
 <main>
   <h1>URL一括オープナー</h1>
-  <p>ブックマークレットから受け取ったURLを、まとめて開くかcollectorへ送信します。</p>
+  <p>ブックマークレットで選んだURLを候補として受け取り、タイトル・最新話数・読むリスト重複を確認してから、選択した作品だけcollectorへ送信します。</p>
   <textarea id="urls" spellcheck="false" placeholder="ここにURLが自動で入ります。手動で1行1URLを貼り付けても使えます。"></textarea>
   <div class="row">
-    <button id="submit">collectorへ送信</button>
+    <button id="previewButton">候補確認</button>
     <button id="readingList">読むリスト更新</button>
     <button id="open">全部開く</button>
     <button id="copy">コピー</button>
@@ -38,6 +51,19 @@
     <button id="clear">消去</button>
   </div>
   <div id="status"></div>
+
+  <section id="previewPanel" hidden>
+    <h2>送信候補</h2>
+    <div id="candidateSummary"></div>
+    <div class="row">
+      <button id="selectEligible">送信可を全選択</button>
+      <button id="unselectAll">選択解除</button>
+      <button id="submit" disabled>選択分をcollectorへ送信</button>
+    </div>
+    <div id="candidates"></div>
+    <div class="small">Android手動取り込みは24話以上。読むリストとの確定重複、24話未満、取得失敗、類似タイトルの要確認候補は送信できません。</div>
+  </section>
+
   <details id="settings">
     <summary>collector送信設定</summary>
     <div class="field">
@@ -51,7 +77,7 @@
     <div class="row"><button id="saveSettings">設定を保存</button></div>
     <div class="small">受け口URLは既定値を設定済みです。tokenだけ入力すれば使えます。設定値はこの端末のブラウザ内だけに保存します。GitHubのcredentialは保存しません。</div>
   </details>
-  <div class="small">「全部開く」は初回だけこのページのポップアップを「常に許可」にしてください。collector送信は raw1001/rawkuro の作品URLだけを対象にします。</div>
+  <div class="small">「全部開く」は初回だけこのページのポップアップを「常に許可」にしてください。collector対象は raw1001/rawkuro の作品URLだけです。</div>
 </main>
 <script>
 window.name='urlLauncher';
@@ -61,9 +87,16 @@ const status=document.getElementById('status');
 const settings=document.getElementById('settings');
 const endpointInput=document.getElementById('endpoint');
 const tokenInput=document.getElementById('token');
+const previewPanel=document.getElementById('previewPanel');
+const candidatesElement=document.getElementById('candidates');
+const candidateSummary=document.getElementById('candidateSummary');
+const submitButton=document.getElementById('submit');
+const previewButton=document.getElementById('previewButton');
 const STORAGE_ENDPOINT='raw1001CollectorEndpoint';
 const STORAGE_TOKEN='raw1001CollectorToken';
 const DEFAULT_ENDPOINT='https://raw1001-manual-intake.kasokasoforce.workers.dev/manual-intake';
+let previewItems=[];
+let previewUrlsKey='';
 
 function installSingletonGuard(){
   if(!navigator.locks?.request) return;
@@ -114,20 +147,31 @@ function getCollectorUrls(){
   }
   return out;
 }
+function urlsKey(urls){return urls.join('\n')}
 function updateCount(prefix=''){
   const n=getUrls().length;
   const c=getCollectorUrls().length;
   status.textContent=n?`${prefix}${n}件のURL（collector対象 ${c}件）`:'';
 }
+function invalidatePreview(){
+  previewItems=[];
+  previewUrlsKey='';
+  previewPanel.hidden=true;
+  candidatesElement.replaceChildren();
+  submitButton.disabled=true;
+}
 function importFromHash(){
   const h=location.hash;
-  if(!h.startsWith('#urls=')) return;
+  if(!h.startsWith('#urls=')) return false;
   try{
     box.value=decodeURIComponent(h.slice(6));
     history.replaceState(null,'',location.pathname+location.search);
+    invalidatePreview();
     updateCount('受け取り完了: ');
+    return true;
   }catch{
     status.textContent='URLの受け取りに失敗しました';
+    return false;
   }
 }
 function loadSettings(){
@@ -140,42 +184,173 @@ function validEndpoint(raw){
     return u.protocol==='https:'&&u.pathname.endsWith('/manual-intake')?u.href:null;
   }catch{return null;}
 }
-box.addEventListener('input',()=>updateCount());
-
-document.getElementById('readingList').addEventListener('click',()=>{
-  location.href='reading.html';
-});
-
-document.getElementById('submit').addEventListener('click',async()=>{
-  const urls=getCollectorUrls();
-  if(!urls.length){status.textContent='collectorへ送る対象URLがありません';return;}
+function previewEndpoint(endpoint){
+  const u=new URL(endpoint);
+  u.pathname=u.pathname.replace(/\/manual-intake\/?$/,'/manual-intake-preview');
+  u.search='';u.hash='';
+  return u.href;
+}
+function currentConfig(){
   const endpoint=validEndpoint(localStorage.getItem(STORAGE_ENDPOINT)||DEFAULT_ENDPOINT);
   const token=localStorage.getItem(STORAGE_TOKEN)||'';
-  if(!endpoint||!token){
-    settings.open=true;
-    endpointInput.value=endpoint||DEFAULT_ENDPOINT;
-    status.textContent='先に受け口tokenを保存してください';
+  return {endpoint,token};
+}
+function requireConfig(){
+  const config=currentConfig();
+  if(config.endpoint&&config.token) return config;
+  settings.open=true;
+  endpointInput.value=config.endpoint||DEFAULT_ENDPOINT;
+  status.textContent='先に受け口tokenを保存してください';
+  return null;
+}
+function selectedUrls(){
+  return [...candidatesElement.querySelectorAll('input[type="checkbox"][data-url]:checked')].map(input=>input.dataset.url);
+}
+function updateSubmitState(){
+  const n=selectedUrls().length;
+  submitButton.disabled=n===0;
+  submitButton.textContent=n?`選択した${n}件をcollectorへ送信`:'選択分をcollectorへ送信';
+}
+function stateLabel(item){
+  if(item.state==='selectable') return '新規・送信可';
+  if(item.state==='duplicate') return `読むリスト重複${item.duplicate?.status?`（${statusLabel(item.duplicate.status)}）`:''}`;
+  if(item.state==='below-threshold') return '24話未満';
+  if(item.reason==='possible-reading-list-title-match') return '類似タイトル・要確認';
+  if(item.reason==='chapter-not-found') return '話数不明・保留';
+  return '取得失敗・保留';
+}
+function statusLabel(value){
+  return value==='unread'?'未読':value==='completed'?'完結':value==='excluded'?'除外':value;
+}
+function renderPreview(items, minimum){
+  previewItems=items;
+  previewPanel.hidden=false;
+  candidatesElement.replaceChildren();
+  const selectable=items.filter(item=>item.selectable).length;
+  const duplicates=items.filter(item=>item.state==='duplicate').length;
+  const below=items.filter(item=>item.state==='below-threshold').length;
+  const holds=items.length-selectable-duplicates-below;
+  candidateSummary.textContent=`${items.length}件確認：送信可 ${selectable} / 重複 ${duplicates} / ${minimum}話未満 ${below} / 保留 ${holds}`;
+  for(const item of items){
+    const card=document.createElement('label');
+    card.className='candidate';
+    const checkbox=document.createElement('input');
+    checkbox.type='checkbox';
+    checkbox.dataset.url=item.url;
+    checkbox.disabled=!item.selectable;
+    checkbox.addEventListener('change',updateSubmitState);
+    const body=document.createElement('div');
+    const title=document.createElement('div');
+    title.className='candidateTitle';
+    title.textContent=item.title||'(タイトル不明)';
+    const meta=document.createElement('div');
+    meta.className='candidateMeta';
+    const chapter=document.createElement('span');
+    chapter.className='chapter';
+    chapter.textContent=item.latest_chapter?`第${item.latest_chapter}話`:'話数不明';
+    const badge=document.createElement('span');
+    badge.className='badge';
+    badge.textContent=stateLabel(item);
+    meta.append(chapter,badge);
+    body.append(title,meta);
+    if(item.duplicate?.title){
+      const note=document.createElement('div');
+      note.className='duplicateNote';
+      note.textContent=`リスト側: ${item.duplicate.title}`;
+      body.append(note);
+    }
+    if(item.fetch_error){
+      const note=document.createElement('div');
+      note.className='duplicateNote';
+      note.textContent=`取得エラー: ${item.fetch_error}`;
+      body.append(note);
+    }
+    const url=document.createElement('div');
+    url.className='candidateUrl';
+    url.textContent=item.url;
+    body.append(url);
+    card.append(checkbox,body);
+    candidatesElement.append(card);
+  }
+  updateSubmitState();
+}
+async function runPreview({quiet=false}={}){
+  const urls=getCollectorUrls();
+  if(!urls.length){status.textContent='確認するcollector対象URLがありません';invalidatePreview();return false;}
+  const config=requireConfig();
+  if(!config) return false;
+  previewButton.disabled=true;
+  if(!quiet) status.textContent=`${urls.length}件のタイトル・話数・重複を確認中…`;
+  try{
+    const response=await fetch(previewEndpoint(config.endpoint),{
+      method:'POST',
+      headers:{'authorization':`Bearer ${config.token}`,'content-type':'application/json'},
+      body:JSON.stringify({source:'manual-android',urls})
+    });
+    let result={};
+    try{result=await response.json();}catch{}
+    if(!response.ok||result.ok!==true){throw new Error(result.detail||result.error||`HTTP ${response.status}`)}
+    previewUrlsKey=urlsKey(urls);
+    renderPreview(Array.isArray(result.candidates)?result.candidates:[],result.minimum_chapters??24);
+    status.textContent=`候補確認完了。送信する作品をチェックしてください。`;
+    return true;
+  }catch(error){
+    invalidatePreview();
+    status.textContent=`候補確認に失敗しました: ${error.message||error}`;
+    return false;
+  }finally{
+    previewButton.disabled=false;
+  }
+}
+
+box.addEventListener('input',()=>{invalidatePreview();updateCount('変更あり: ')});
+
+document.getElementById('readingList').addEventListener('click',()=>{location.href='reading.html'});
+previewButton.addEventListener('click',()=>runPreview());
+
+document.getElementById('selectEligible').addEventListener('click',()=>{
+  for(const input of candidatesElement.querySelectorAll('input[type="checkbox"][data-url]')){
+    if(!input.disabled) input.checked=true;
+  }
+  updateSubmitState();
+});
+document.getElementById('unselectAll').addEventListener('click',()=>{
+  for(const input of candidatesElement.querySelectorAll('input[type="checkbox"][data-url]')) input.checked=false;
+  updateSubmitState();
+});
+
+submitButton.addEventListener('click',async()=>{
+  const currentUrls=getCollectorUrls();
+  if(previewUrlsKey!==urlsKey(currentUrls)){
+    status.textContent='URLが変わっています。もう一度「候補確認」を実行してください。';
+    invalidatePreview();
     return;
   }
-  const button=document.getElementById('submit');
-  button.disabled=true;
-  status.textContent=`${urls.length}件をcollectorへ送信中…`;
+  const urls=selectedUrls();
+  if(!urls.length){status.textContent='送信する作品を選択してください';return;}
+  const config=requireConfig();
+  if(!config) return;
+  submitButton.disabled=true;
+  status.textContent=`選択した${urls.length}件をcollectorへ送信前再確認中…`;
   try{
-    const response=await fetch(endpoint,{
+    const response=await fetch(config.endpoint,{
       method:'POST',
-      headers:{'authorization':`Bearer ${token}`,'content-type':'application/json'},
+      headers:{'authorization':`Bearer ${config.token}`,'content-type':'application/json'},
       body:JSON.stringify({source:'manual-android',urls})
     });
     let result={};
     try{result=await response.json();}catch{}
     if(!response.ok||result.ok!==true){
+      if(response.status===409&&Array.isArray(result.rejected)){
+        throw new Error(`送信直前確認で${result.rejected.length}件が重複・24話未満・保留になりました。候補確認をやり直してください。`);
+      }
       throw new Error(result.detail||result.error||`HTTP ${response.status}`);
     }
-    status.textContent=`collectorへ${result.accepted??urls.length}件送信しました`;
+    status.textContent=`collectorへ選択した${result.accepted??urls.length}件を送信しました`;
+    for(const input of candidatesElement.querySelectorAll('input[type="checkbox"][data-url]')) input.disabled=true;
   }catch(error){
     status.textContent=`collector送信に失敗しました: ${error.message||error}`;
-  }finally{
-    button.disabled=false;
+    submitButton.disabled=false;
   }
 });
 
@@ -189,52 +364,37 @@ document.getElementById('saveSettings').addEventListener('click',()=>{
   endpointInput.value=endpoint;
   status.textContent='collector送信設定を保存しました';
   settings.open=false;
+  if(getCollectorUrls().length) runPreview({quiet:true});
 });
 
 document.getElementById('open').addEventListener('click',()=>{
   const urls=getUrls();
   if(!urls.length){status.textContent='開くURLがありません';return;}
   let opened=0;
-  for(const url of urls){
-    const w=window.open(url,'_blank','noopener');
-    if(w) opened++;
-  }
-  status.textContent=opened===urls.length
-    ? `${opened}件を開きました`
-    : `${opened}/${urls.length}件を開きました。残りが止まった場合は、このページのポップアップを「常に許可」にしてください。`;
+  for(const url of urls){const w=window.open(url,'_blank','noopener');if(w) opened++}
+  status.textContent=opened===urls.length?`${opened}件を開きました`:`${opened}/${urls.length}件を開きました。残りが止まった場合は、このページのポップアップを「常に許可」にしてください。`;
 });
 
 document.getElementById('copy').addEventListener('click',async()=>{
   const urls=getUrls();
   if(!urls.length){status.textContent='コピーするURLがありません';return;}
   const text=urls.join('\n');
-  try{
-    await navigator.clipboard.writeText(text);
-    status.textContent=`${urls.length}件をコピーしました`;
-  }catch{
-    box.focus(); box.select();
-    status.textContent='URLを選択しました。コピー操作をしてください。';
-  }
+  try{await navigator.clipboard.writeText(text);status.textContent=`${urls.length}件をコピーしました`}
+  catch{box.focus();box.select();status.textContent='URLを選択しました。コピー操作をしてください。'}
 });
 
 document.getElementById('paste').addEventListener('click',async()=>{
-  try{
-    box.value=await navigator.clipboard.readText();
-    updateCount('貼り付け完了: ');
-  }catch{
-    box.focus();
-    status.textContent='直接貼り付けできませんでした。入力欄を長押しして「貼り付け」を使ってください。';
-  }
+  try{box.value=await navigator.clipboard.readText();invalidatePreview();updateCount('貼り付け完了: ')}
+  catch{box.focus();status.textContent='直接貼り付けできませんでした。入力欄を長押しして「貼り付け」を使ってください。'}
 });
 
-document.getElementById('clear').addEventListener('click',()=>{
-  box.value=''; updateCount(); box.focus();
-});
+document.getElementById('clear').addEventListener('click',()=>{box.value='';invalidatePreview();updateCount();box.focus()});
 
-window.addEventListener('hashchange',importFromHash);
+window.addEventListener('hashchange',()=>{if(importFromHash()) runPreview({quiet:true})});
 installSingletonGuard();
 loadSettings();
-importFromHash();
+const imported=importFromHash();
+if(imported&&localStorage.getItem(STORAGE_TOKEN)) runPreview({quiet:true});
 </script>
 </body>
 </html>

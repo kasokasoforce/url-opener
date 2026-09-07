@@ -1,0 +1,45 @@
+name: Check URL Opener JavaScript
+
+on:
+  pull_request:
+    paths:
+      - "index.html"
+      - "reading.html"
+      - ".github/workflows/check-inline-js.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "index.html"
+      - "reading.html"
+      - ".github/workflows/check-inline-js.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Parse inline scripts
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          for (const path of ['index.html', 'reading.html']) {
+            const html = fs.readFileSync(path, 'utf8');
+            const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
+            if (!scripts.length) throw new Error(`${path}: no inline script found`);
+            for (const [index, match] of scripts.entries()) {
+              try {
+                new Function(match[1]);
+              } catch (error) {
+                throw new Error(`${path} inline script ${index + 1}: ${error.message}`);
+              }
+            }
+            console.log(`${path}: ${scripts.length} inline script(s) parsed`);
+          }
+          NODE
