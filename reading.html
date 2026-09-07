@@ -69,6 +69,18 @@ function endpointBase(raw){
     return url.href.replace(/\/$/,'');
   }catch{return null;}
 }
+function workerFetchWithRetry(rawUrl,options={}){
+  const attempt=async(retry)=>{
+    const url=new URL(rawUrl);
+    if(retry) url.searchParams.set('_retry',`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    return fetch(url.href,{...options,cache:'no-store'});
+  };
+  return attempt(false).catch(error=>{
+    const message=String(error?.message||error||'');
+    if(!(error instanceof TypeError)&&!/Failed to fetch/i.test(message)) throw error;
+    return attempt(true);
+  });
+}
 function connection(){
   const endpoint=localStorage.getItem(STORAGE_ENDPOINT)||DEFAULT_ENDPOINT;
   const token=localStorage.getItem(STORAGE_TOKEN)||'';
@@ -127,7 +139,7 @@ async function loadList(){
   setBusy(true);
   status.textContent='未読リストを読み込み中…';
   try{
-    const response=await fetch(`${base}/reading-list?status=unread&limit=100`,{
+    const response=await workerFetchWithRetry(`${base}/reading-list?status=unread&limit=100`,{
       headers:{authorization:`Bearer ${token}`,accept:'application/json'}
     });
     let body={}; try{body=await response.json();}catch{}
@@ -148,7 +160,7 @@ async function queueAction(work,action,confirmText){
   setBusy(true);
   status.textContent=`${work.title} の更新を送信中…`;
   try{
-    const response=await fetch(`${base}/reading-status`,{
+    const response=await workerFetchWithRetry(`${base}/reading-status`,{
       method:'POST',
       headers:{authorization:`Bearer ${token}`,'content-type':'application/json',accept:'application/json'},
       body:JSON.stringify({source:'reading-android',work_id:work.id,action,expected_revision:revision})
