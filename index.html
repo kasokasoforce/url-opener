@@ -197,6 +197,18 @@ function currentConfig(){
   const token=localStorage.getItem(STORAGE_TOKEN)||'';
   return {endpoint,token};
 }
+function workerFetchWithRetry(rawUrl,options={}){
+  const attempt=async(retry)=>{
+    const url=new URL(rawUrl);
+    if(retry) url.searchParams.set('_retry',`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    return fetch(url.href,{...options,cache:'no-store'});
+  };
+  return attempt(false).catch(error=>{
+    const message=String(error?.message||error||'');
+    if(!(error instanceof TypeError)&&!/Failed to fetch/i.test(message)) throw error;
+    return attempt(true);
+  });
+}
 function requireConfig(){
   const config=currentConfig();
   if(config.endpoint&&config.token) return config;
@@ -311,7 +323,7 @@ async function excludeCandidate(item,checkbox,button,badge){
   button.disabled=true;
   status.textContent=`${title} を除外へ送信中…`;
   try{
-    const response=await fetch(endpoint.href,{
+    const response=await workerFetchWithRetry(endpoint.href,{
       method:'POST',
       headers:{'authorization':`Bearer ${config.token}`,'content-type':'application/json',accept:'application/json'},
       body:JSON.stringify({source:'reading-android',url:item.url,title})
