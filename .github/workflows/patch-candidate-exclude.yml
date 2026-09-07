@@ -1,0 +1,55 @@
+name: Patch candidate exclusion UI
+
+on:
+  push:
+    branches:
+      - feature/candidate-exclude
+    paths:
+      - ".github/workflows/patch-candidate-exclude.yml"
+      - "scripts/_patch_candidate_exclude.py"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature/candidate-exclude
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Patch URL Opener
+        run: python scripts/_patch_candidate_exclude.py
+
+      - name: Verify inline JavaScript syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html=Path('index.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script>([\s\S]*?)</script>',html)
+          if not scripts:
+              raise SystemExit('no inline script')
+          Path('/tmp/url-opener-inline.js').write_text('\n'.join(scripts),encoding='utf-8')
+          PY
+          node --check /tmp/url-opener-inline.js
+
+      - name: Commit patch and remove temporary files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/patch-candidate-exclude.yml
+          rm scripts/_patch_candidate_exclude.py
+          rmdir scripts 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- index.html .github scripts
+          git commit -m "Add candidate exclusion action to Android preview"
+          git push origin HEAD:feature/candidate-exclude
