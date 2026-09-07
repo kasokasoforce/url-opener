@@ -35,6 +35,7 @@
   .chapter { font-weight:700; }
   .candidateUrl { margin-top:7px; font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; opacity:.58; overflow-wrap:anywhere; }
   .duplicateNote { margin-top:6px; font-size:13px; opacity:.78; }
+  .candidateOpen { margin-top:9px; padding:8px 11px; font-size:13px; }
 </style>
 </head>
 <body>
@@ -61,7 +62,7 @@
       <button id="submit" disabled>選択分をcollectorへ送信</button>
     </div>
     <div id="candidates"></div>
-    <div class="small">Android手動取り込みは24話以上。読むリストとの確定重複、24話未満、取得失敗、類似タイトルの要確認候補は送信できません。</div>
+    <div class="small">Android手動取り込みは24話以上。読むリストとの確定重複、24話未満、取得失敗、類似タイトルの要確認候補は送信できません。送信不可の作品も各カードの「開く」で個別確認できます。</div>
   </section>
 
   <details id="settings">
@@ -232,7 +233,7 @@ function renderPreview(items, minimum){
   const holds=items.length-selectable-duplicates-below;
   candidateSummary.textContent=`${items.length}件確認：送信可 ${selectable} / 重複 ${duplicates} / ${minimum}話未満 ${below} / 保留 ${holds}`;
   for(const item of items){
-    const card=document.createElement('label');
+    const card=document.createElement('div');
     card.className='candidate';
     const checkbox=document.createElement('input');
     checkbox.type='checkbox';
@@ -253,6 +254,17 @@ function renderPreview(items, minimum){
     badge.textContent=stateLabel(item);
     meta.append(chapter,badge);
     body.append(title,meta);
+    const openButton=document.createElement('button');
+    openButton.type='button';
+    openButton.className='candidateOpen';
+    openButton.textContent='開く';
+    openButton.addEventListener('click',event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      const opened=window.open(item.url,'_blank','noopener');
+      status.textContent=opened?`${item.title||'作品'}を開きました`:'開けませんでした。このページのポップアップを許可してください。';
+    });
+    body.append(openButton);
     if(item.duplicate?.title){
       const note=document.createElement('div');
       note.className='duplicateNote';
