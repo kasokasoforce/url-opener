@@ -35,7 +35,8 @@
   .chapter { font-weight:700; }
   .candidateUrl { margin-top:7px; font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; opacity:.58; overflow-wrap:anywhere; }
   .duplicateNote { margin-top:6px; font-size:13px; opacity:.78; }
-  .candidateOpen { margin-top:9px; padding:8px 11px; font-size:13px; }
+  .candidateOpen, .candidateExclude { padding:8px 11px; font-size:13px; }
+  .candidateActions { display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; }
 </style>
 </head>
 <body>
@@ -62,7 +63,7 @@
       <button id="submit" disabled>選択分をcollectorへ送信</button>
     </div>
     <div id="candidates"></div>
-    <div class="small">Android手動取り込みは24話以上。読むリストとの確定重複、24話未満、取得失敗、類似タイトルの要確認候補は送信できません。送信不可の作品も各カードの「開く」で個別確認できます。</div>
+    <div class="small">Android手動取り込みは24話以上。読むリストとの確定重複、24話未満、取得失敗、類似タイトルの要確認候補はcollectorへ送信できません。各カードの「開く」で個別確認し、読みたくない作品はその場で「除外」へ入れられます。</div>
   </section>
 
   <details id="settings">
@@ -254,6 +255,8 @@ function renderPreview(items, minimum){
     badge.textContent=stateLabel(item);
     meta.append(chapter,badge);
     body.append(title,meta);
+    const candidateActions=document.createElement('div');
+    candidateActions.className='candidateActions';
     const openButton=document.createElement('button');
     openButton.type='button';
     openButton.className='candidateOpen';
@@ -264,7 +267,18 @@ function renderPreview(items, minimum){
       const opened=window.open(item.url,'_blank','noopener');
       status.textContent=opened?`${item.title||'作品'}を開きました`:'開けませんでした。このページのポップアップを許可してください。';
     });
-    body.append(openButton);
+    const excludeButton=document.createElement('button');
+    excludeButton.type='button';
+    excludeButton.className='candidateExclude';
+    excludeButton.textContent=item.duplicate?.status==='excluded'?'除外済み':'除外';
+    excludeButton.disabled=item.duplicate?.status==='excluded';
+    excludeButton.addEventListener('click',event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      excludeCandidate(item,checkbox,excludeButton,badge);
+    });
+    candidateActions.append(openButton,excludeButton);
+    body.append(candidateActions);
     if(item.duplicate?.title){
       const note=document.createElement('div');
       note.className='duplicateNote';
@@ -286,6 +300,41 @@ function renderPreview(items, minimum){
   }
   updateSubmitState();
 }
+async function excludeCandidate(item,checkbox,button,badge){
+  const title=item.title||'(タイトル不明)';
+  if(!confirm(`${title}\n\nこの作品を「除外」へ入れます。collectorには送信しません。よろしいですか？`)) return;
+  const config=requireConfig();
+  if(!config) return;
+  const endpoint=new URL(config.endpoint);
+  endpoint.pathname=endpoint.pathname.replace(/\/manual-intake\/?$/,'/reading-candidate-exclude');
+  endpoint.search=''; endpoint.hash='';
+  button.disabled=true;
+  status.textContent=`${title} を除外へ送信中…`;
+  try{
+    const response=await fetch(endpoint.href,{
+      method:'POST',
+      headers:{'authorization':`Bearer ${config.token}`,'content-type':'application/json',accept:'application/json'},
+      body:JSON.stringify({source:'reading-android',url:item.url,title})
+    });
+    let result={};
+    try{result=await response.json();}catch{}
+    if(!response.ok||result.ok!==true){
+      const existing=result.existing?.title?` / 既存: ${result.existing.title}`:'';
+      throw new Error(`${result.detail||result.error||`HTTP ${response.status}`}${existing}`);
+    }
+    checkbox.checked=false;
+    checkbox.disabled=true;
+    button.textContent='除外受付済み';
+    button.disabled=true;
+    badge.textContent='除外受付済み';
+    updateSubmitState();
+    status.textContent=`受付済み: ${title} → 除外。反映後は読むリストの重複判定にも使われます。`;
+  }catch(error){
+    button.disabled=false;
+    status.textContent=`除外に失敗しました: ${error.message||error}`;
+  }
+}
+
 async function runPreview({quiet=false}={}){
   const urls=getCollectorUrls();
   if(!urls.length){status.textContent='確認するcollector対象URLがありません';invalidatePreview();return false;}
