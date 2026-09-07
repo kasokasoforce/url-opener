@@ -1,0 +1,69 @@
+name: Apply single candidate open UI patch
+
+on:
+  push:
+    branches:
+      - fix/single-candidate-open
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/single-candidate-open
+          fetch-depth: 0
+      - name: Patch URL Opener
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text()
+
+          s = s.replace(
+              '  .duplicateNote { margin-top:6px; font-size:13px; opacity:.78; }\n',
+              '  .duplicateNote { margin-top:6px; font-size:13px; opacity:.78; }\n'
+              '  .candidateOpen { margin-top:9px; padding:8px 11px; font-size:13px; }\n'
+          )
+
+          s = s.replace(
+              '    <div class="small">Android手動取り込みは24話以上。読むリストとの確定重複、24話未満、取得失敗、類似タイトルの要確認候補は送信できません。</div>',
+              '    <div class="small">Android手動取り込みは24話以上。読むリストとの確定重複、24話未満、取得失敗、類似タイトルの要確認候補は送信できません。送信不可の作品も各カードの「開く」で個別確認できます。</div>'
+          )
+
+          s = s.replace(
+              "    const card=document.createElement('label');\n    card.className='candidate';",
+              "    const card=document.createElement('div');\n    card.className='candidate';"
+          )
+
+          needle = "    body.append(title,meta);\n"
+          replacement = """    body.append(title,meta);\n    const openButton=document.createElement('button');\n    openButton.type='button';\n    openButton.className='candidateOpen';\n    openButton.textContent='開く';\n    openButton.addEventListener('click',event=>{\n      event.preventDefault();\n      event.stopPropagation();\n      const opened=window.open(item.url,'_blank','noopener');\n      status.textContent=opened?`${item.title||'作品'}を開きました`:'開けませんでした。このページのポップアップを許可してください。';\n    });\n    body.append(openButton);\n"""
+          if needle not in s:
+              raise SystemExit('render insertion point not found')
+          s = s.replace(needle, replacement, 1)
+
+          p.write_text(s)
+          PY
+      - name: Verify patch and JavaScript syntax
+        run: |
+          grep -q "candidateOpen" index.html
+          grep -q "送信不可の作品も各カードの「開く」で個別確認できます" index.html
+          node - <<'NODE'
+          const fs=require('fs');
+          const html=fs.readFileSync('index.html','utf8');
+          const m=html.match(/<script>([\s\S]*?)<\/script>/);
+          if(!m) throw new Error('inline script not found');
+          new Function(m[1]);
+          NODE
+      - name: Commit patch and remove temporary workflow
+        run: |
+          rm .github/workflows/patch-single-candidate-open.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add index.html .github/workflows/patch-single-candidate-open.yml
+          git commit -m "Fix per-candidate inspection in Android URL Opener"
+          git push origin HEAD:fix/single-candidate-open
